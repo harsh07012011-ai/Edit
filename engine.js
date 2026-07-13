@@ -563,16 +563,26 @@ class CutoutDropTransitionTemplate extends BaseTemplate {
    * @param {object} opts
    * @param {HTMLCanvasElement[]} opts.cutoutCanvases  one per image
    * @param {number} opts.transitionDuration           seconds, default direction
-   * @param {string} opts.animationType                fallback direction: 'slide_top' | 'slide_bottom' | 'slide_left' | 'slide_right' | 'zoom_in'
-   * @param {string[]} [opts.perCutDirections]          optional per-cut direction, one per cut point, overrides animationType for that specific cut
-   * @param {number[]} [opts.segmentStartsOverride]     manual cut timings in seconds, overrides AI beat detection
+   * @param {string} opts.animationType                fallback direction
+   * @param {string[]} [opts.perCutDirections]         optional per-cut direction
+   * @param {number[]} [opts.segmentStartsOverride]    manual cut timings
    */
   constructor(baseCanvases, analyzer, opts = {}) {
     super(baseCanvases, analyzer, opts.segmentStartsOverride ?? null);
     this.cutoutCanvases = opts.cutoutCanvases;
     this.transitionDuration = opts.transitionDuration ?? 0.4;
-    this.animationType = opts.animationType ?? 'slide_bottom';
-    this.perCutDirections = opts.perCutDirections ?? null;
+    
+    // THE FIX: Automatically alternate directions if no manual directions are provided
+    if (opts.perCutDirections && opts.perCutDirections.length > 0) {
+        this.perCutDirections = opts.perCutDirections;
+    } else {
+        const cycle = ['slide_right', 'slide_left', 'slide_top', 'slide_bottom'];
+        // Generate an alternating array matching the number of detected cuts
+        this.perCutDirections = Array.from(
+            { length: this.segmentStarts.length }, 
+            (_, i) => cycle[i % 4]
+        );
+    }
   }
 
   drawFrame(ctx, t) {
@@ -595,7 +605,8 @@ class CutoutDropTransitionTemplate extends BaseTemplate {
     if (timeToCut >= 0 && timeToCut <= this.transitionDuration) {
       const nextIdx = (segIdx + 1) % this.cutoutCanvases.length;
       const progress = 1 - timeToCut / this.transitionDuration;
-      const direction = this.perCutDirections?.[segIdx] || this.animationType;
+      // It will now pull from our generated alternating array
+      const direction = this.perCutDirections[segIdx] || 'slide_right';
       this._drawAnimatedCutout(ctx, this.cutoutCanvases[nextIdx], progress, direction);
     }
 
@@ -626,7 +637,8 @@ class CutoutDropTransitionTemplate extends BaseTemplate {
     ctx.drawImage(cutoutCanvas, 0, 0);
     ctx.restore();
   }
-}
+  }
+        
 
 /** Direction options for the Cutout Drop Transition style — shared with
  * app.js so the UI dropdown and the renderer never fall out of sync. */
