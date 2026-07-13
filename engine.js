@@ -637,9 +637,8 @@ class CutoutDropTransitionTemplate extends BaseTemplate {
     ctx.drawImage(cutoutCanvas, 0, 0);
     ctx.restore();
   }
-  }
-        
-
+       }
+      
 /** Direction options for the Cutout Drop Transition style — shared with
  * app.js so the UI dropdown and the renderer never fall out of sync. */
 const CUTOUT_DIRECTIONS = [
