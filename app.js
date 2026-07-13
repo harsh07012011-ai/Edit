@@ -215,16 +215,48 @@ async function buildCutoutCanvases(imageFiles, onProgress) {
     'https://cdn.jsdelivr.net/npm/@imgly/background-removal/+esm'
   );
 
-  const cutoutCanvases = [];
-  for (let i = 0; i < imageFiles.length; i++) {
-    const smallBlob = await downscaleForCutout(imageFiles[i]);
-    const cutoutBlob = await imglyRemoveBackground(smallBlob, { model: 'small' });
-    const cutoutImg = await loadImage(cutoutBlob);
-    cutoutCanvases.push(makeCutoutCanvas(cutoutImg));
-    onProgress(i + 1, imageFiles.length);
+  // OPTIMIZATION: Enable WebGPU, pin public path, and force IndexedDB caching
+  const imglyConfig = {
+    publicPath: "https://cdn.jsdelivr.net/npm/@imgly/background-removal-data@1.5.6/dist/",
+    model: "small",
+    device: navigator.gpu ? "webgpu" : "wasm", // Uses GPU if available, falls back to WASM
+    fetchArgs: {
+      cache: "force-cache" // Caches the AI model locally for instant re-runs
+    }
+  };
+
+  const cutoutCanvases = new Array(imageFiles.length);
+  let completed = 0;
+  
+  // OPTIMIZATION: Process 3 images simultaneously instead of 1 by 1
+  const BATCH_SIZE = 3; 
+
+  for (let i = 0; i < imageFiles.length; i += BATCH_SIZE) {
+    const batch = imageFiles.slice(i, i + BATCH_SIZE);
+    
+    const batchPromises = batch.map(async (file, idx) => {
+      const globalIdx = i + idx;
+      try {
+        const smallBlob = await downscaleForCutout(file);
+        const cutoutBlob = await imglyRemoveBackground(smallBlob, imglyConfig);
+        const cutoutImg = await loadImage(cutoutBlob);
+        cutoutCanvases[globalIdx] = makeCutoutCanvas(cutoutImg);
+      } catch (error) {
+        console.error(`Background removal failed for image ${globalIdx}:`, error);
+        // Fallback: use the original image if AI fails so the video doesn't break
+        const fallbackImg = await loadImage(file);
+        cutoutCanvases[globalIdx] = makeCutoutCanvas(fallbackImg);
+      }
+      completed++;
+      onProgress(completed, imageFiles.length);
+    });
+    
+    await Promise.all(batchPromises);
   }
+  
   return cutoutCanvases;
 }
+  
 
 async function generateVideo() {
   showPanel('progress-panel');
