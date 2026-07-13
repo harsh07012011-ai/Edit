@@ -215,20 +215,19 @@ async function buildCutoutCanvases(imageFiles, onProgress) {
     'https://cdn.jsdelivr.net/npm/@imgly/background-removal/+esm'
   );
 
-  // OPTIMIZATION: Enable WebGPU, pin public path, and force IndexedDB caching
+  // THE FIX: Removed the strict publicPath and WebGPU override. 
+  // We let the library pick the best settings, but force it to cache!
   const imglyConfig = {
-    publicPath: "https://cdn.jsdelivr.net/npm/@imgly/background-removal-data@1.5.6/dist/",
     model: "small",
-    device: navigator.gpu ? "webgpu" : "wasm", // Uses GPU if available, falls back to WASM
     fetchArgs: {
-      cache: "force-cache" // Caches the AI model locally for instant re-runs
+      cache: "force-cache" 
     }
   };
 
   const cutoutCanvases = new Array(imageFiles.length);
   let completed = 0;
   
-  // OPTIMIZATION: Process 3 images simultaneously instead of 1 by 1
+  // STILL FAST: Process 3 images simultaneously
   const BATCH_SIZE = 3; 
 
   for (let i = 0; i < imageFiles.length; i += BATCH_SIZE) {
@@ -243,7 +242,7 @@ async function buildCutoutCanvases(imageFiles, onProgress) {
         cutoutCanvases[globalIdx] = makeCutoutCanvas(cutoutImg);
       } catch (error) {
         console.error(`Background removal failed for image ${globalIdx}:`, error);
-        // Fallback: use the original image if AI fails so the video doesn't break
+        // Fallback: use the original image if AI fails
         const fallbackImg = await loadImage(file);
         cutoutCanvases[globalIdx] = makeCutoutCanvas(fallbackImg);
       }
@@ -255,9 +254,8 @@ async function buildCutoutCanvases(imageFiles, onProgress) {
   }
   
   return cutoutCanvases;
-}
-  
-
+    }
+          
 async function generateVideo() {
   showPanel('progress-panel');
   el('progress-fill').style.width = '0%';
