@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cutout Transition — Apex Edit</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">&#9679;</span>
+      <span>Apex<strong>Edit</strong></span>
+    </div>
+    <p class="tagline">Dynamic Subject Cutout Transition — 100% in your browser.</p>
+    <p class="tagline"><a href="index.html" class="back-link">&larr; back to the beat-sync tool</a></p>
+  </header>
+
+  <main class="container">
+
+    <section class="panel" id="setup-panel">
+      <h2><span class="step">1</span> Two Clips</h2>
+      <div class="upload-grid">
+        <label class="dropzone" id="video-a-drop" for="video-a-input">
+          <input type="file" id="video-a-input" accept="video/*" hidden />
+          <div class="dropzone-icon">🅰️</div>
+          <div class="dropzone-title">Video A (outgoing)</div>
+          <div class="dropzone-sub">Plays first — the last N seconds get the cutout overlay</div>
+          <div class="dropzone-filename" id="video-a-filename"></div>
+        </label>
+
+        <label class="dropzone" id="video-b-drop" for="video-b-input">
+          <input type="file" id="video-b-input" accept="video/*" hidden />
+          <div class="dropzone-icon">🅱️</div>
+          <div class="dropzone-title">Video B (incoming)</div>
+          <div class="dropzone-sub">Its first frame gets AI-cutout, then plays in full after the hard cut</div>
+          <div class="dropzone-filename" id="video-b-filename"></div>
+        </label>
+      </div>
+
+      <h2><span class="step">2</span> Transition Settings</h2>
+      <div class="settings-row">
+        <label for="duration-input">Transition length (seconds)</label>
+        <input type="number" id="duration-input" min="0.1" max="2" step="0.1" value="0.5" />
+      </div>
+      <div class="settings-row">
+        <label for="animation-select">Cutout animation</label>
+        <select id="animation-select">
+          <option value="zoom_in">Zoom in</option>
+          <option value="slide_up">Slide up</option>
+          <option value="none">Static</option>
+        </select>
+      </div>
+
+      <button id="generate-btn" class="primary-btn" disabled>Generate Transition Video</button>
+      <p class="format-note">
+        First run downloads a small AI segmentation model (~cached after that)
+        to cut out Video B's subject — needs an internet connection once.
+      </p>
+    </section>
+
+    <section class="panel hidden" id="progress-panel">
+      <h2><span class="step">3</span> Rendering</h2>
+      <canvas id="render-canvas"></canvas>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-label" id="progress-label">Starting…</div>
+    </section>
+
+    <section class="panel hidden" id="result-panel">
+      <h2>Your Video is Ready 🎬</h2>
+      <video id="result-video" controls playsinline></video>
+      <div class="result-actions">
+        <a id="download-link" class="primary-btn" download>Download Video</a>
+        <button id="restart-btn" class="ghost-btn">Create Another</button>
+      </div>
+    </section>
+
+    <section class="panel hidden error-panel" id="error-panel">
+      <h2>Something Went Wrong</h2>
+      <p id="error-message"></p>
+      <button id="error-restart-btn" class="ghost-btn">Try Again</button>
+    </section>
+
+  </main>
+
+  <video id="video-a-el" style="display:none" playsinline></video>
+  <video id="video-b-el" style="display:none" playsinline></video>
+
+  <script type="module" src="transition.js"></script>
+</body>
+</html>
