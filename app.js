@@ -208,53 +208,66 @@ async function downscaleForCutout(file, maxDim = 1024) {
   return new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', 0.92));
 }
 
-async function buildCutoutCanvases(imageFiles, onProgress) {
-  // Loaded on demand (only when a cutout-based style is used) so the
-  // other styles never pay for this download.
-  const { removeBackground: imglyRemoveBackground } = await import(
-    'https://cdn.jsdelivr.net/npm/@imgly/background-removal/+esm'
-  );
+// 1. THIS IS THE NEW MODEL LOADER (Caches in the browser)
+let bgRemover = null;
 
-  // THE FIX: Removed the strict publicPath and WebGPU override. 
-  // We let the library pick the best settings, but force it to cache!
-  const imglyConfig = {
-    model: "small",
-    fetchArgs: {
-      cache: "force-cache" 
+async function loadWebGPUModel() {
+    if (!bgRemover) {
+        // Dynamically import Transformers.js so it doesn't break your HTML script tags
+        const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+        env.allowLocalModels = false;
+        
+        console.log("Downloading AI model (First time only, ~176MB)...");
+        // Initialize the RMBG-1.4 pipeline with WebGPU acceleration if available
+        bgRemover = await pipeline('background-removal', 'briaai/RMBG-1.4', { 
+            device: navigator.gpu ? 'webgpu' : 'wasm' 
+        });
     }
-  };
+    return bgRemover;
+}
 
+// 2. THIS REPLACES YOUR EXISTING buildCutoutCanvases FUNCTION
+async function buildCutoutCanvases(imageFiles, onProgress) {
   const cutoutCanvases = new Array(imageFiles.length);
   let completed = 0;
   
-  // STILL FAST: Process 3 images simultaneously
-  const BATCH_SIZE = 3; 
+  // Load the AI model once before starting the loop so it doesn't stall per image
+  const remover = await loadWebGPUModel();
 
-  for (let i = 0; i < imageFiles.length; i += BATCH_SIZE) {
-    const batch = imageFiles.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < imageFiles.length; i++) {
+    const file = imageFiles[i];
     
-    const batchPromises = batch.map(async (file, idx) => {
-      const globalIdx = i + idx;
-      try {
-        const smallBlob = await downscaleForCutout(file);
-        const cutoutBlob = await imglyRemoveBackground(smallBlob, imglyConfig);
-        const cutoutImg = await loadImage(cutoutBlob);
-        cutoutCanvases[globalIdx] = makeCutoutCanvas(cutoutImg);
-      } catch (error) {
-        console.error(`Background removal failed for image ${globalIdx}:`, error);
-        // Fallback: use the original image if AI fails
-        const fallbackImg = await loadImage(file);
-        cutoutCanvases[globalIdx] = makeCutoutCanvas(fallbackImg);
-      }
-      completed++;
-      onProgress(completed, imageFiles.length);
-    });
+    // Scale down the image first to speed up the AI (using your existing downscale function)
+    const smallBlob = await downscaleForCutout(file);
+    const imgUrl = URL.createObjectURL(smallBlob);
     
-    await Promise.all(batchPromises);
+    try {
+      // Process the image client-side via Transformers.js
+      const resultImage = await remover(imgUrl);
+      
+      // Convert the AI's RawImage output into a Blob
+      const transparentBlob = await resultImage.toBlob();
+      
+      // Turn the Blob into a canvas for your video renderer
+      const cutoutImg = await loadImage(transparentBlob);
+      cutoutCanvases[i] = makeCutoutCanvas(cutoutImg);
+      
+    } catch (error) {
+      console.error(`Transformers.js failed for image ${i}:`, error);
+      // Fallback: use the original image if AI fails so the video rendering continues
+      const fallbackImg = await loadImage(file);
+      cutoutCanvases[i] = makeCutoutCanvas(fallbackImg);
+    } finally {
+      URL.revokeObjectURL(imgUrl); // Clean up browser memory
+    }
+    
+    completed++;
+    onProgress(completed, imageFiles.length);
   }
   
   return cutoutCanvases;
-    }
+}
+
           
 async function generateVideo() {
   showPanel('progress-panel');
