@@ -301,6 +301,24 @@ async function generateVideo() {
         el('progress-fill').style.width = `${pct}%`;
         el('progress-label').textContent = `Cutting out subjects (${done}/${total})…`;
       });
+      // THE FIX: Switch to the Single Video Beat-Sync engine if a single video source is present
+let template;
+if (state.videoFile) { 
+    // If the user uploaded a single video instead of static images
+    const videoEl = document.createElement('video');
+    videoEl.src = URL.createObjectURL(state.videoFile);
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+    await new Promise((resolve) => videoEl.onloadedmetadata = resolve);
+    
+    template = new window.SingleVideoBeatSyncTemplate(videoEl, analyzer);
+} else {
+    // Fall back to original image array template engines
+    if (isCutoutStyle(state.styleKey)) {
+      // ... your existing image cutout template loading logic ...
+    }
+}
+  
       template = new TemplateCls(baseCanvases, analyzer, {
         cutoutCanvases,
         transitionDuration: parseFloat(el('cutout-duration-input').value) || 0.4,
