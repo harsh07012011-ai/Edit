@@ -784,3 +784,167 @@ const STYLE_PRESETS = {
     accent_color: '#22d3ee', recommended_bpm: 'any',
   },
 };
+class SingleVideoBeatSyncTemplate {
+  /**
+   * @param {HTMLVideoElement} videoElement The uploaded source video
+   * @param {AudioAnalyzer} analyzer The audio analyzer engine
+   */
+  constructor(videoElement, analyzer) {
+    this.video = videoElement;
+    this.analyzer = analyzer;
+    this.beatTimes = analyzer.beatTimes || [];
+    this.dropTimes = analyzer.dropTimes || [];
+    
+    // Canvas dimensions configuration
+    this.cw = 1080;
+    this.ch = 1920;
+  }
+
+  /**
+   * Calculates the speed-ramped video time mapping from current audio time
+   */
+  getVideoTimeMapping(t) {
+    if (this.beatTimes.length === 0) return t;
+
+    // Find what beat segment we are currently inside
+    let beatIdx = 0;
+    while (beatIdx < this.beatTimes.length && this.beatTimes[beatIdx] <= t) {
+      beatIdx++;
+    }
+
+    const startBeat = beatIdx === 0 ? 0 : this.beatTimes[beatIdx - 1];
+    const endBeat = beatIdx >= this.beatTimes.length ? this.analyzer.duration : this.beatTimes[beatIdx];
+    const beatDuration = endBeat - startBeat;
+    
+    if (beatDuration <= 0) return t;
+
+    // Normalized progress between these two beats (0.0 to 1.0)
+    const progress = (t - startBeat) / beatDuration;
+
+    // CapCut Velocity Curve: Stays slow for 70% of the beat, then accelerates rapidly
+    let rampedProgress;
+    if (progress < 0.7) {
+      // Slow-motion segment
+      rampedProgress = (progress / 0.7) * 0.4;
+    } else {
+      // Fast catch-up snap right on the beat landing
+      rampedProgress = 0.4 + ((progress - 0.7) / 0.3) * 0.6;
+    }
+
+    // Map back to global video timeline coordinates
+    return startBeat + (rampedProgress * beatDuration);
+  }
+
+  drawFrame(ctx, t) {
+    // 1. Sync the video timeline to our custom velocity curve mapping
+    const targetsVideoTime = this.getVideoTimeMapping(t);
+    if (Math.abs(this.video.currentTime - targetsVideoTime) > 0.1) {
+      this.video.currentTime = targetsVideoTime;
+    }
+
+    ctx.save();
+
+    // 2. Calculate decay envelopes from the beat grid
+    let lastBeat = 0;
+    for (let b of this.beatTimes) { if (b <= t) lastBeat = b; else break; }
+    const beatAge = t - lastBeat;
+    
+    let lastDrop = 0;
+    for (let d of this.dropTimes) { if (d <= t) lastDrop = d; else break; }
+    const dropAge = t - lastDrop;
+
+    // Decaying effect factors
+    const beatEnv = Math.max(0, 1 - (beatAge / 0.3)); // 300ms beat window
+    const dropEnv = Math.max(0, 1 - (dropAge / 0.4)); // 400ms drop window
+
+    // 3. Dynamic Camera Work (Zoom & Rotation)
+    const baseScale = 1.0;
+    const zoomImpact = dropEnv * 0.12; // 12% extra pop zoom on drops
+    const currentScale = baseScale + zoomImpact;
+    
+    const rotationImpact = beatEnv * 0.03 * (this.beatTimes.indexOf(lastBeat) % 2 === 0 ? 1 : -1);
+
+    // Center canvas coordinate pivots
+    ctx.translate(this.cw / 2, this.ch / 2);
+    ctx.scale(currentScale, currentScale);
+    ctx.rotate(rotationImpact);
+
+    // 4. Bass-Drop Camera Shake Impact
+    if (dropAge < 0.15) {
+      const shakePower = dropEnv * 15; // Up to 15px shifting displacement
+      const offsetX = (Math.random() - 0.5) * shakePower;
+      const offsetY = (Math.random() - 0.5) * shakePower;
+      ctx.translate(offsetX, offsetY);
+    }
+    ctx.translate(-this.cw / 2, -this.ch / 2);
+
+    // Helper to draw video centered using cover cropping
+    const drawVideoCover = (targetCtx, vid, w, h) => {
+      const scale = Math.max(w / vid.videoWidth, h / vid.videoHeight);
+      const nw = vid.videoWidth * scale;
+      const nh = vid.videoHeight * scale;
+      targetCtx.drawImage(vid, (w - nw) / 2, (h - nh) / 2, nw, nh);
+    };
+
+    // 5. The Ghost Echo / Clone Split Effect
+    if (beatAge < 0.25) {
+      const ghostProgress = beatAge / 0.25; // 0.0 to 1.0
+      const ghostOffset = ghostProgress * 90; // Slides out up to 90 pixels
+      
+      ctx.save();
+      ctx.globalAlpha = (1 - ghostProgress) * 0.4; // Fade out as they slide
+      ctx.globalCompositeOperation = "screen";
+
+      // Left Echo Clone
+      ctx.save();
+      ctx.translate(-ghostOffset, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+
+      // Right Echo Clone
+      ctx.save();
+      ctx.translate(ghostOffset, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+
+      ctx.restore();
+    }
+
+    // 6. RGB Glitch / Split Effect
+    if (beatAge < 0.08) { // Ultra quick glitch burst
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+
+      // Red Channel Offset Shift
+      ctx.save();
+      ctx.translate(8, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+
+      // Cyan Channel Offset Shift
+      ctx.save();
+      ctx.translate(-8, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+      
+      ctx.restore();
+    } else {
+      // Regular base layer draw
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+    }
+
+    ctx.restore(); // Restore baseline configurations
+
+    // 7. Strobe Flash Impact Overlay
+    if (dropAge < 0.2) {
+      ctx.save();
+      ctx.fillStyle = `rgba(255, 255, 255, ${dropEnv * 0.35})`; // Soft white flash overlay
+      ctx.fillRect(0, 0, this.cw, this.ch);
+      ctx.restore();
+    }
+  }
+}
+
+// Attach to global window scope so app.js can discover it
+window.SingleVideoBeatSyncTemplate = SingleVideoBeatSyncTemplate;
+  
