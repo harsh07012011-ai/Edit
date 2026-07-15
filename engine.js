@@ -948,3 +948,154 @@ class SingleVideoBeatSyncTemplate {
 // Attach to global window scope so app.js can discover it
 window.SingleVideoBeatSyncTemplate = SingleVideoBeatSyncTemplate;
   
+// ===========================================================================
+// SINGLE VIDEO BEAT-SYNC ENGINE (CAPCUT STYLE)
+// ===========================================================================
+
+class SingleVideoBeatSyncTemplate {
+  constructor(videoElement, analyzer) {
+    this.video = videoElement;
+    this.analyzer = analyzer;
+    this.beatTimes = analyzer.beatTimes || [];
+    this.dropTimes = analyzer.dropTimes || [];
+    this.cw = 1080;
+    this.ch = 1920;
+  }
+
+  getVideoTimeMapping(t) {
+    if (this.beatTimes.length === 0) return t;
+    let beatIdx = 0;
+    while (beatIdx < this.beatTimes.length && this.beatTimes[beatIdx] <= t) {
+      beatIdx++;
+    }
+    const startBeat = beatIdx === 0 ? 0 : this.beatTimes[beatIdx - 1];
+    const endBeat = beatIdx >= this.beatTimes.length ? this.analyzer.duration : this.beatTimes[beatIdx];
+    const beatDuration = endBeat - startBeat;
+    
+    if (beatDuration <= 0) return t;
+    const progress = (t - startBeat) / beatDuration;
+    
+    let rampedProgress;
+    if (progress < 0.7) {
+      rampedProgress = (progress / 0.7) * 0.4;
+    } else {
+      rampedProgress = 0.4 + ((progress - 0.7) / 0.3) * 0.6;
+    }
+    return startBeat + (rampedProgress * beatDuration);
+  }
+
+  drawFrame(ctx, t) {
+    const targetsVideoTime = this.getVideoTimeMapping(t);
+    if (Math.abs(this.video.currentTime - targetsVideoTime) > 0.1) {
+      this.video.currentTime = targetsVideoTime;
+    }
+
+    ctx.save();
+    let lastBeat = 0;
+    for (let b of this.beatTimes) { if (b <= t) lastBeat = b; else break; }
+    const beatAge = t - lastBeat;
+    
+    let lastDrop = 0;
+    for (let d of this.dropTimes) { if (d <= t) lastDrop = d; else break; }
+    const dropAge = t - lastDrop;
+
+    const beatEnv = Math.max(0, 1 - (beatAge / 0.3));
+    const dropEnv = Math.max(0, 1 - (dropAge / 0.4));
+
+    const baseScale = 1.0;
+    const zoomImpact = dropEnv * 0.12;
+    const currentScale = baseScale + zoomImpact;
+    const rotationImpact = beatEnv * 0.03 * (this.beatTimes.indexOf(lastBeat) % 2 === 0 ? 1 : -1);
+
+    ctx.translate(this.cw / 2, this.ch / 2);
+    ctx.scale(currentScale, currentScale);
+    ctx.rotate(rotationImpact);
+
+    if (dropAge < 0.15) {
+      const shakePower = dropEnv * 15;
+      const offsetX = (Math.random() - 0.5) * shakePower;
+      const offsetY = (Math.random() - 0.5) * shakePower;
+      ctx.translate(offsetX, offsetY);
+    }
+    ctx.translate(-this.cw / 2, -this.ch / 2);
+
+    const drawVideoCover = (targetCtx, vid, w, h) => {
+      const scale = Math.max(w / vid.videoWidth, h / vid.videoHeight);
+      const nw = vid.videoWidth * scale;
+      const nh = vid.videoHeight * scale;
+      targetCtx.drawImage(vid, (w - nw) / 2, (h - nh) / 2, nw, nh);
+    };
+
+    if (beatAge < 0.25) {
+      const ghostProgress = beatAge / 0.25;
+      const ghostOffset = ghostProgress * 90;
+      
+      ctx.save();
+      ctx.globalAlpha = (1 - ghostProgress) * 0.4;
+      ctx.globalCompositeOperation = "screen";
+
+      ctx.save();
+      ctx.translate(-ghostOffset, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(ghostOffset, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+      ctx.restore();
+    }
+
+    if (beatAge < 0.08) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.save();
+      ctx.translate(8, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(-8, 0);
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+      ctx.restore();
+      ctx.restore();
+    } else {
+      drawVideoCover(ctx, this.video, this.cw, this.ch);
+    }
+
+    ctx.restore();
+
+    if (dropAge < 0.2) {
+      ctx.save();
+      ctx.fillStyle = `rgba(255, 255, 255, ${dropEnv * 0.35})`;
+      ctx.fillRect(0, 0, this.cw, this.ch);
+      ctx.restore();
+    }
+  }
+}
+
+// Attach the class to the global window so app.js can use it
+window.SingleVideoBeatSyncTemplate = SingleVideoBeatSyncTemplate;
+
+// Automatically inject the card into the UI menus
+window.addEventListener('DOMContentLoaded', () => {
+  if (typeof STYLE_PRESETS !== 'undefined') {
+    STYLE_PRESETS['single_video_sync'] = {
+      key: 'single_video_sync',
+      name: 'CapCut Auto-Sync',
+      description: 'Upload ONE video + audio track. Automatically generates velocity ramping, ghost echo splits, RGB glitches, and heavy camera shakes on the beat.',
+      recommended_bpm: '120-160',
+      accent_color: '#ff007f',
+      needsCutout: false
+    };
+  }
+  
+  if (typeof TEMPLATE_REGISTRY !== 'undefined') {
+    TEMPLATE_REGISTRY['single_video_sync'] = SingleVideoBeatSyncTemplate;
+  }
+  
+  // Re-render the grid so the new card shows up immediately
+  if (typeof renderStyleGrid === 'function') {
+    renderStyleGrid();
+  }
+});
+    
